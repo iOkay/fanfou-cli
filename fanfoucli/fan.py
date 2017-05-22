@@ -357,7 +357,7 @@ class Fan:
             prompt = cstring('[-] 输入命令(h显示帮助)>', 'cyan')
             try:
                 key = input(prompt).strip()
-                if key in ('j', 'q', 'h'):
+                if key in ('z', 'j', 'q', 'h'):
                     return key, None, None
                 else:
                     keys = key.split(' ')
@@ -388,8 +388,12 @@ class Fan:
                     if cfg.AUTO_CLEAR:
                         clear_screen()
                     break
+                if command == 'z':
+                    max_id = None
+                    break
                 elif command == 'h':
-                    print(cstring('<j>', 'cyan') + ' 翻页 \n' +
+                    print(cstring('<z>', 'cyan') + '刷新 \n' +
+                          cstring('<j>', 'cyan') + ' 翻页 \n' +
                           cstring('<c 序号 xxx>', 'cyan') + ' 评论\n' +
                           cstring('<r 序号 xxx>', 'cyan') + ' 转发\n' +
                           cstring('<f 序号>', 'cyan') + ' 关注原PO\n' +
