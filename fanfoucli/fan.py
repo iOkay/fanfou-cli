@@ -407,7 +407,7 @@ class Fan:
                           cstring('<q>', 'cyan') + ' 退出')
                 elif command == 'p':
                     image_url = timeline[number]['photo']['largeurl']
-                    logging.debug('image url is %s', image_url)
+                    logging.debug('image url is %s', timeline[number]['photo'])
                     simshow(image_url)
                 elif command == 'c':
                     status = timeline[number]
