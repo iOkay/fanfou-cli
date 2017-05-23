@@ -12,6 +12,8 @@ import re
 import sys
 import time
 from http.server import BaseHTTPRequestHandler, HTTPServer
+from base64 import b64encode
+from sys import stdout
 
 import arrow
 import requests
@@ -355,6 +357,49 @@ class Fan:
                     time_tag=time_tag))
         print('\n'.join(statuses))
 
+    @classmethod
+    def imgcat(cls, image_data, width='auto', height='auto', preserveAspectRatio=False, inline=True, filename=''):
+
+        # The width and height are given as a number followed by a unit, or the word "auto".
+        #     N: N character cells.
+        #     Npx: N pixels.
+        #     N%: N percent of the session's width or height.
+        #     auto: The image's inherent size will be used to determine an appropriate dimension.
+
+        buf = bytes()
+        enc = 'utf-8'
+
+        is_tmux = os.environ['TERM'].startswith('screen')
+
+        # OSC
+        buf += b'\033'
+        if is_tmux: buf += b'Ptmux;\033\033'
+        buf += b']'
+
+        buf += b'1337;File='
+
+        if filename:
+            buf += b'name='
+            buf += b64encode(filename.encode(enc))
+
+        buf += b';size=%d' % len(image_data)
+        buf += b';inline=%d' % int(inline)
+        buf += b';width=%s' % width.encode(enc)
+        buf += b';height=%s' % height.encode(enc)
+        buf += b';preserveAspectRatio=%d' % int(preserveAspectRatio)
+        buf += b':'
+        buf += b64encode(image_data)
+
+        # ST
+        buf += b'\a'
+        if is_tmux: buf += b'\033\\'
+
+        buf += b'\n'
+
+        stdout.buffer.write(buf)
+        stdout.flush()
+
+
     def view(self):
         """浏览模式"""
 
@@ -409,7 +454,8 @@ class Fan:
                     image_url = timeline[number]['photo']['largeurl']
                     logging.debug('image url is %s', timeline[number]['photo'])
                     # TODO:优化图片显示及gif显示
-                    simshow(image_url)
+                    # simshow(image_url)
+                    self.imgcat(requests.get(image_url).content)
                 elif command == 'c':
                     status = timeline[number]
                     text = '@' + status['user']['screen_name'] + ' ' + content
