@@ -419,8 +419,9 @@ class Fan:
                 elif command == 'r':
                     # 去掉返回消息中的HTML标记，因为上传的时候服务器会根据@,##等标记自动生成
                     status = timeline[number]
+                    logging.debug('status is %s', status)
                     text = re.sub(r'<a.*?>(.*?)</a>', r'\1', status['text'])
-                    text = content + '「' + text + '」'
+                    text = content + '「@' + status['user']['screen_name'] + ' ' + text + '」'
                     repost_status_id = status['id']
                     self.update_status(status=text, repost_status_id=repost_status_id, format='html')
                 elif command == 'f':
