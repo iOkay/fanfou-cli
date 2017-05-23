@@ -408,6 +408,7 @@ class Fan:
                 elif command == 'p':
                     image_url = timeline[number]['photo']['largeurl']
                     logging.debug('image url is %s', timeline[number]['photo'])
+                    # TODO:优化图片显示及gif显示
                     simshow(image_url)
                 elif command == 'c':
                     status = timeline[number]
