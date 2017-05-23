@@ -16,6 +16,8 @@ import arrow
 import requests
 from requests_oauthlib import OAuth1Session
 from requests_oauthlib.oauth1_session import TokenRequestDenied
+from PIL import Image
+from simshow import simshow
 
 from . import cstring, cprint, get_input, open_in_browser, clear_screen
 from . import config as cfg
@@ -332,6 +334,7 @@ class Fan:
         statuses = []
 
         for i, status in enumerate(timeline):
+
             name = cstring(status['user']['name'], 'green')
             id = ('@' + cstring(status['user']['id'], 'blue')) if cfg.SHOW_ID else ''
             text = cls.process_status_text(status['text'])
@@ -394,11 +397,16 @@ class Fan:
                 elif command == 'h':
                     print(cstring('<z>', 'cyan') + '刷新 \n' +
                           cstring('<j>', 'cyan') + ' 翻页 \n' +
+                          cstring('<p 序号>', 'cyan') + ' 图片 \n' +
                           cstring('<c 序号 xxx>', 'cyan') + ' 评论\n' +
                           cstring('<r 序号 xxx>', 'cyan') + ' 转发\n' +
                           cstring('<f 序号>', 'cyan') + ' 关注原PO\n' +
                           cstring('<u 序号>', 'cyan') + ' 取消关注\n' +
                           cstring('<q>', 'cyan') + ' 退出')
+                elif command == 'p':
+                    image_url = timeline[number]['photo']['largeurl']
+                    logging.debug('image url is %s', image_url)
+                    simshow(image_url)
                 elif command == 'c':
                     status = '@' + timeline[number]['user']['screen_name'] + ' ' + content
                     reply_to_user_id = timeline[number]['user']['id']
