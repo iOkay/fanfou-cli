@@ -440,6 +440,8 @@ class Fan:
                     break
                 if command == 'z':
                     max_id = None
+                    if cfg.AUTO_CLEAR:
+                        clear_screen()
                     break
                 elif command == 'h':
                     print(cstring('<z>', 'cyan') + '刷新 \n' +
