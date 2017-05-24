@@ -295,6 +295,7 @@ class Fan:
         location = user['location']
         description = user['description']
         url = user['url']
+        profile_image_url = user['profile_image_url_large']
 
         created_at = arrow.get(user['created_at'], 'ddd MMM DD HH:mm:ss Z YYYY')
         created_days = (arrow.now(tz='+08:00') - created_at).days + 1
@@ -326,6 +327,7 @@ class Fan:
             friends=friends_count,
             count_per_day=cstring(str(count_per_day), 'magenta')
         ))
+        cls.imgcat(requests.get(profile_image_url).content)
 
     @classmethod
     def process_status_text(cls, text):
