@@ -470,22 +470,29 @@ class Fan:
                       cstring('<p 序号>', 'cyan') + ' 图片 \n' +
                       cstring('<l 序号>', 'cyan') + '浏览用户 \n' +
                       cstring('<lo 序号>', 'cyan') + '浏览原PO \n' +
+                    #   cstring('<ltl 序号>', 'cyan') + '浏览用户TL \n' +
+                    #   cstring('<lotl 序号>', 'cyan') + '浏览原PO\'s TL \n' +
                       cstring('<c 序号 xxx>', 'cyan') + ' 评论\n' +
                       cstring('<r 序号 xxx>', 'cyan') + ' 转发\n' +
                       cstring('<f 序号>', 'cyan') + ' 关注原PO\n' +
                       cstring('<u 序号>', 'cyan') + ' 取消关注\n' +
                       cstring('<q>', 'cyan') + ' 退出')
             elif command == 'p':
-                image_url = timeline[number]['photo']['largeurl']
-                logging.debug('image url is %s', timeline[number]['photo'])
+                status = timeline[number]
+                photo = status['photo'] if 'photo' in status else None
+                image_url = photo['largeurl'] if photo else None
                 # TODO:优化图片显示及gif显示
                 # simshow(image_url)
-                self.imgcat(requests.get(image_url).content)
+                if bool(image_url):
+                    self.imgcat(requests.get(image_url).content)
+                else:
+                    cprint('[x] 没有图片', 'red')
             elif command == 'l':
                 self.display_user(timeline[number]['user'])
             elif command == 'lo':
-                self.display_user(
-                    timeline[number]['repost_status']['user'])
+                self.display_user(timeline[number]['repost_status']['user'])
+            # elif command == 'ltl':
+            # elif commnad == 'lotl':
             elif command == 'c':
                 status = timeline[number]
                 text = '@' + status['user']['screen_name'] + ' ' + content
