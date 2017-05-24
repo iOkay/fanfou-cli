@@ -447,6 +447,8 @@ class Fan:
                     print(cstring('<z>', 'cyan') + '刷新 \n' +
                           cstring('<j>', 'cyan') + ' 翻页 \n' +
                           cstring('<p 序号>', 'cyan') + ' 图片 \n' +
+                          cstring('<l 序号>', 'cyan') + '浏览用户 \n' +
+                          cstring('<lo 序号>', 'cyan') + '浏览原PO \n' +
                           cstring('<c 序号 xxx>', 'cyan') + ' 评论\n' +
                           cstring('<r 序号 xxx>', 'cyan') + ' 转发\n' +
                           cstring('<f 序号>', 'cyan') + ' 关注原PO\n' +
@@ -458,6 +460,10 @@ class Fan:
                     # TODO:优化图片显示及gif显示
                     # simshow(image_url)
                     self.imgcat(requests.get(image_url).content)
+                elif command == 'l':
+                    self.display_user(timeline[number]['user'])
+                elif command == 'lo':
+                    self.display_user(timeline[number]['repost_status']['user'])
                 elif command == 'c':
                     status = timeline[number]
                     text = '@' + status['user']['screen_name'] + ' ' + content
