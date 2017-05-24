@@ -434,7 +434,6 @@ class Fan:
 
             while True:
                 command, number, content = get_input()
-                status = timeline[number]
                 if command == 'j':
                     if cfg.AUTO_CLEAR:
                         clear_screen()
