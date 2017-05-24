@@ -413,7 +413,7 @@ class Fan:
             prompt = cstring('[-] 输入命令(h显示帮助)>', 'cyan')
             try:
                 key = input(prompt).strip()
-                if key in ('z', 'j', 'q', 'h'):
+                if key in ('z', 'j', 'q', 'h', 'm'):
                     return key, None, None
                 else:
                     keys = key.split(' ')
@@ -429,86 +429,112 @@ class Fan:
                 # cprint('[x] 输入格式有误，退出中...', 'red')
                 return None, None, None
 
-        max_id = None
-        while True:
-            s, timeline = self.api.home_timeline(count=10, max_id=max_id, format='html', mode='lite')
+        def display_private_timeline(index):
+            s, timeline = self.api.home_timeline(count=10, max_id=index, format='html', mode='lite')
             if not s:
                 cprint('[x] ' + timeline, 'red')
-                break
-            max_id = timeline[-1]['id']
             self.display_statuses(timeline)
+            return timeline[-1]['id']
 
-            while True:
-                command, number, content = get_input()
-                if command == 'j':
-                    if cfg.AUTO_CLEAR:
-                        clear_screen()
-                    break
-                if command == 'z':
-                    max_id = None
-                    if cfg.AUTO_CLEAR:
-                        clear_screen()
-                    break
-                elif command == 'h':
-                    print(cstring('<z>', 'cyan') + '刷新 \n' +
-                          cstring('<j>', 'cyan') + ' 翻页 \n' +
-                          cstring('<p 序号>', 'cyan') + ' 图片 \n' +
-                          cstring('<l 序号>', 'cyan') + '浏览用户 \n' +
-                          cstring('<lo 序号>', 'cyan') + '浏览原PO \n' +
-                          cstring('<c 序号 xxx>', 'cyan') + ' 评论\n' +
-                          cstring('<r 序号 xxx>', 'cyan') + ' 转发\n' +
-                          cstring('<f 序号>', 'cyan') + ' 关注原PO\n' +
-                          cstring('<u 序号>', 'cyan') + ' 取消关注\n' +
-                          cstring('<q>', 'cyan') + ' 退出')
-                elif command == 'p':
-                    image_url = timeline[number]['photo']['largeurl']
-                    logging.debug('image url is %s', timeline[number]['photo'])
-                    # TODO:优化图片显示及gif显示
-                    # simshow(image_url)
-                    self.imgcat(requests.get(image_url).content)
-                elif command == 'l':
-                    self.display_user(timeline[number]['user'])
-                elif command == 'lo':
-                    self.display_user(timeline[number]['repost_status']['user'])
-                elif command == 'c':
-                    status = timeline[number]
-                    text = '@' + status['user']['screen_name'] + ' ' + content
-                    reply_to_user_id = status['user']['id']
-                    reply_to_status_id = status['id']
-                    self.update_status(status=text, in_reply_to_user_id=reply_to_user_id,
-                                       in_reply_to_status_id=reply_to_status_id, format='html')
-                elif command == 'r':
-                    # 去掉返回消息中的HTML标记，因为上传的时候服务器会根据@,##等标记自动生成
-                    status = timeline[number]
-                    logging.debug('status is %s', status)
-                    text = re.sub(r'<a.*?>(.*?)</a>', r'\1', status['text'])
-                    text = content + '「@' + status['user']['screen_name'] + ' ' + text + '」'
-                    repost_status_id = status['id']
-                    self.update_status(status=text, repost_status_id=repost_status_id, format='html')
-                elif command == 'f':
-                    # 关注原PO
-                    status = timeline[number]
-                    if 'repost_user_id' in status:
-                        user_id = status['repost_user_id']
-                        user_name = status['repost_screen_name']
-                        s, r = self.api.friendships_create(id=user_id)
-                        if s:
-                            cprint('[-] 关注 [{}] 成功'.format(user_name), 'green')
-                        else:
-                            cprint('[x] ' + r, 'red')
-                elif command == 'u':
-                    status = timeline[number]
-                    user_id = status['user']['id']
-                    user_name = status['user']['screen_name']
-                    s, r = self.api.friendships_destroy(id=user_id, format='html')
+        def display_public_timeline():
+            s, timeline = self.api.public_timeline(count=20)
+            if s:
+                self.display_statuses(timeline)
+            else:
+                cprint('[x] ' + timeline, 'red')
+
+        max_id = None
+        # while True:
+        #     s, timeline = self.api.home_timeline(count=10, max_id=max_id, format='html', mode='lite')
+        #     if not s:
+        #         cprint('[x] ' + timeline, 'red')
+        #         break
+        #     max_id = timeline[-1]['id']
+        #     self.display_statuses(timeline)
+
+        max_id = display_private_timeline(max_id)
+
+        while True:
+            command, number, content = get_input()
+            if command == 'j':
+                if cfg.AUTO_CLEAR:
+                    clear_screen()
+
+                max_id = display_private_timeline(max_id)
+            elif command == 'z':
+                max_id = None
+                if cfg.AUTO_CLEAR:
+                    clear_screen()
+                display_private_timeline(max_id)
+            elif command == 'm':
+                if cfg.AUTO_CLEAR:
+                    clear_screen()
+                display_public_timeline()
+            elif command == 'h':
+                print(cstring('<m>', 'cyan') + '随便看看 \n' +
+                      cstring('<z>', 'cyan') + '刷新 \n' +
+                      cstring('<j>', 'cyan') + ' 翻页 \n' +
+                      cstring('<p 序号>', 'cyan') + ' 图片 \n' +
+                      cstring('<l 序号>', 'cyan') + '浏览用户 \n' +
+                      cstring('<lo 序号>', 'cyan') + '浏览原PO \n' +
+                      cstring('<c 序号 xxx>', 'cyan') + ' 评论\n' +
+                      cstring('<r 序号 xxx>', 'cyan') + ' 转发\n' +
+                      cstring('<f 序号>', 'cyan') + ' 关注原PO\n' +
+                      cstring('<u 序号>', 'cyan') + ' 取消关注\n' +
+                      cstring('<q>', 'cyan') + ' 退出')
+            elif command == 'p':
+                image_url = timeline[number]['photo']['largeurl']
+                logging.debug('image url is %s', timeline[number]['photo'])
+                # TODO:优化图片显示及gif显示
+                # simshow(image_url)
+                self.imgcat(requests.get(image_url).content)
+            elif command == 'l':
+                self.display_user(timeline[number]['user'])
+            elif command == 'lo':
+                self.display_user(
+                    timeline[number]['repost_status']['user'])
+            elif command == 'c':
+                status = timeline[number]
+                text = '@' + status['user']['screen_name'] + ' ' + content
+                reply_to_user_id = status['user']['id']
+                reply_to_status_id = status['id']
+                self.update_status(status=text, in_reply_to_user_id=reply_to_user_id,
+                                   in_reply_to_status_id=reply_to_status_id, format='html')
+            elif command == 'r':
+                # 去掉返回消息中的HTML标记，因为上传的时候服务器会根据@,##等标记自动生成
+                status = timeline[number]
+                logging.debug('status is %s', status)
+                text = re.sub(r'<a.*?>(.*?)</a>', r'\1', status['text'])
+                text = content + '「@' + \
+                    status['user']['screen_name'] + ' ' + text + '」'
+                repost_status_id = status['id']
+                self.update_status(
+                    status=text, repost_status_id=repost_status_id, format='html')
+            elif command == 'f':
+                # 关注原PO
+                status = timeline[number]
+                if 'repost_user_id' in status:
+                    user_id = status['repost_user_id']
+                    user_name = status['repost_screen_name']
+                    s, r = self.api.friendships_create(id=user_id)
                     if s:
-                        cprint('[-] 取消关注 [{}] 成功'.format(user_name), 'green')
+                        cprint('[-] 关注 [{}] 成功'.format(user_name), 'green')
                     else:
                         cprint('[x] ' + r, 'red')
-                elif command == 'q':
-                    sys.exit(0)
+            elif command == 'u':
+                status = timeline[number]
+                user_id = status['user']['id']
+                user_name = status['user']['screen_name']
+                s, r = self.api.friendships_destroy(
+                    id=user_id, format='html')
+                if s:
+                    cprint('[-] 取消关注 [{}] 成功'.format(user_name), 'green')
                 else:
-                    cprint('[x] 输入有误，请重新输入', 'red')
+                    cprint('[x] ' + r, 'red')
+            elif command == 'q':
+                sys.exit(0)
+            else:
+                cprint('[x] 输入有误，请重新输入', 'red')
 
     def random_view(self):
         s, timeline = self.api.public_timeline(count=20)
