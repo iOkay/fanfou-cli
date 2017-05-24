@@ -434,7 +434,7 @@ class Fan:
             if not s:
                 cprint('[x] ' + timeline, 'red')
             self.display_statuses(timeline)
-            return timeline[-1]['id']
+            return timeline
 
         def display_public_timeline():
             s, timeline = self.api.public_timeline(count=20)
@@ -442,34 +442,27 @@ class Fan:
                 self.display_statuses(timeline)
             else:
                 cprint('[x] ' + timeline, 'red')
+            return timeline
 
         max_id = None
-        # while True:
-        #     s, timeline = self.api.home_timeline(count=10, max_id=max_id, format='html', mode='lite')
-        #     if not s:
-        #         cprint('[x] ' + timeline, 'red')
-        #         break
-        #     max_id = timeline[-1]['id']
-        #     self.display_statuses(timeline)
-
-        max_id = display_private_timeline(max_id)
-
+        timeline = display_private_timeline(max_id)
         while True:
             command, number, content = get_input()
             if command == 'j':
                 if cfg.AUTO_CLEAR:
                     clear_screen()
-
-                max_id = display_private_timeline(max_id)
+                timeline = display_private_timeline(max_id)
+                max_id = timeline[-1]['id']
             elif command == 'z':
                 max_id = None
                 if cfg.AUTO_CLEAR:
                     clear_screen()
-                display_private_timeline(max_id)
+                timeline = display_private_timeline(max_id)
+                max_id = timeline[-1]['id']
             elif command == 'm':
                 if cfg.AUTO_CLEAR:
                     clear_screen()
-                display_public_timeline()
+                timeline = display_public_timeline()
             elif command == 'h':
                 print(cstring('<m>', 'cyan') + '随便看看 \n' +
                       cstring('<z>', 'cyan') + '刷新 \n' +
