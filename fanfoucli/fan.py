@@ -413,7 +413,7 @@ class Fan:
             prompt = cstring('[-] 输入命令(h显示帮助)>', 'cyan')
             try:
                 key = input(prompt).strip()
-                if key in ('z', 'j', 'q', 'h', 'm'):
+                if key in ('z', 'j', 'q', 'h', 'm', 'k'):
                     return key, None, None
                 else:
                     keys = key.split(' ')
@@ -445,6 +445,7 @@ class Fan:
             return timeline
 
         max_id = None
+        min_id = None
         timeline = display_private_timeline(max_id)
         while True:
             command, number, content = get_input()
@@ -453,12 +454,20 @@ class Fan:
                     clear_screen()
                 timeline = display_private_timeline(max_id)
                 max_id = timeline[-1]['id']
+                min_id = timeline[0]['id']
+            elif command == 'k':
+                    if cfg.AUTO_CLEAR:
+                    clear_screen()
+                timeline = display_private_timeline(min_id)
+                max_id = timeline[-1]['id']
+                min_id = timeline[0]['id']
             elif command == 'z':
                 max_id = None
                 if cfg.AUTO_CLEAR:
                     clear_screen()
                 timeline = display_private_timeline(max_id)
                 max_id = timeline[-1]['id']
+                min_id = timeline[0]['id']
             elif command == 'm':
                 if cfg.AUTO_CLEAR:
                     clear_screen()
@@ -467,6 +476,7 @@ class Fan:
                 print(cstring('<m>', 'cyan') + '随便看看 \n' +
                       cstring('<z>', 'cyan') + '刷新 \n' +
                       cstring('<j>', 'cyan') + ' 翻页 \n' +
+                      cstring('<k>', 'cyan') + ' 前一页 \n' +
                       cstring('<p 序号>', 'cyan') + ' 图片 \n' +
                       cstring('<l 序号>', 'cyan') + '浏览用户 \n' +
                       cstring('<lo 序号>', 'cyan') + '浏览原PO \n' +
