@@ -1,6 +1,10 @@
+import os
 import sys
+from base64 import b64encode
 
-__version__ = '0.1.13'
+import requests
+
+__version__ = '0.1.15'
 
 __all__ = [
     'cstring', 'cprint', 'clear_screen', 'open_in_browser', 'get_input']

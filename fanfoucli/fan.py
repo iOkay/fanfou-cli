@@ -11,25 +11,33 @@ import os
 import re
 import sys
 import time
+import getpass
 from http.server import BaseHTTPRequestHandler, HTTPServer
-from base64 import b64encode
+from urllib.parse import urlparse
 from sys import stdout
+from base64 import b64encode
 
 import arrow
 import requests
-from requests_oauthlib import OAuth1Session
-from requests_oauthlib.oauth1_session import TokenRequestDenied
-from PIL import Image
-from simshow import simshow
 
-from . import config as cfg
-from . import cstring, cprint, get_input, open_in_browser, clear_screen
+# patch utils.filter_params
+from oauthlib.oauth1.rfc5849 import utils
+utils.filter_oauth_params = lambda t: t
+
+from . import clear_screen
+from requests_oauthlib.oauth1_session import TokenRequestDenied, OAuth1Session
+from . import cprint, cstring, get_input, open_in_browser
+from oauthlib.oauth1 import Client as OAuth1Client
+
+# Flag set when callback was called
+CALLBACK_REQUEST = None
 
 
-class TokenHandler(BaseHTTPRequestHandler):
+class OAuthTokenHandler(BaseHTTPRequestHandler):
     def do_GET(self):
+        global CALLBACK_REQUEST
         if 'callback?oauth_token=' in self.path:
-            cfg.authorization_response = cfg.REDIRECT_URI + self.path
+            CALLBACK_REQUEST = self.path
             self.send_response(200)
             self.send_header('Content-type', 'text/html; charset=utf-8')
             self.end_headers()
@@ -41,18 +49,31 @@ class TokenHandler(BaseHTTPRequestHandler):
             self.wfile.write('<h1>参数错误！</h1>'.encode('utf8'))
 
 
-def start_token_server():
-    server_address = ('127.0.0.1', 8000)
-    httpd = HTTPServer(server_address, TokenHandler)
+def start_oauth_server(redirect_uri):
+    global CALLBACK_REQUEST
+    netloc = urlparse(redirect_uri).netloc
+    hostname, port = netloc.split(':')
+    try:
+        port = int(port)
+    except TypeError:
+        port = 80
+    except ValueError:
+        cprint('[x] 不合法的回调地址: %s' % redirect_uri)
+        sys.exit(1)
+    httpd = HTTPServer((hostname, port), OAuthTokenHandler)
     sa = httpd.socket.getsockname()
     serve_message = cstring("[-] 已在本地启动HTTP服务器，等待饭否君的到来 (http://{host}:{port}/) ...", 'cyan')
     print(serve_message.format(host=sa[0], port=sa[1]))
     try:
         httpd.handle_request()
     except KeyboardInterrupt:
-        print("\nKeyboard interrupt received, exiting.")
-        sys.exit(0)
+        cprint("[-] 服务器退出中...", 'cyan')
     httpd.server_close()
+
+    if not CALLBACK_REQUEST:
+        cprint('[x] 服务器没有收到请求', 'red')
+        callback = get_input(cstring('[-] 请手动粘贴跳转后的链接>', 'cyan'))
+        CALLBACK_REQUEST = callback
 
 
 def api(method, category, action):
@@ -65,7 +86,7 @@ def api(method, category, action):
                 try:
                     result = self.session.request(method, url, params=params, data=data, files=files, timeout=5)
                 except ValueError as e:
-                    print(e)
+                    cprint(e, 'red')
                     sys.exit(1)
                 except requests.RequestException:
                     failure += 1
@@ -86,33 +107,42 @@ def api(method, category, action):
 
 
 class API:
-    def __init__(self, consumer_key, consumer_secret, access_token=None, **urls):
-        self.api_url = urls.pop('api_url')
-        self.consumer_key = consumer_key
-        self.consumer_secret = consumer_secret
-        self.session = OAuth1Session(consumer_key, consumer_secret)
-        self.access_token = access_token or self.auth(**urls)
+    def __init__(self, cfg):
+        self.cfg = cfg
+        self.api_url = cfg.api_url
+        self.session = OAuth1Session(self.cfg.consumer_key, self.cfg.consumer_secret)
+        self.access_token = self.cfg.user.get('access_token')
+        if not self.access_token:
+            if self.cfg.xauth:
+                self.access_token = self.xauth()
+            else:
+                self.access_token = self.oauth()
         self.session._populate_attributes(self.access_token)
+        self.cfg.user['access_token'] = self.access_token
 
-    def auth(self, request_token_url, authorize_url, access_token_url, callback_uri):
+    def oauth(self):
+        global CALLBACK_REQUEST
         try:
-            self.session.fetch_request_token(request_token_url)
-            authorization_url = self.session.authorization_url(authorize_url, callback_uri=callback_uri)
+            self.session.fetch_request_token(self.cfg.request_token_url)
+            authorization_url = self.session.authorization_url(self.cfg.authorize_url,
+                                                               callback_uri=self.cfg.callback_uri)
 
             cprint('[-] 初次使用，此工具需要你的授权才能工作/_\\', 'cyan')
             if get_input(cstring('[-] 是否自动在浏览器中打开授权链接(y/n)>', 'cyan')) == 'y':
                 open_in_browser(authorization_url)
             else:
-                cprint('[-] 请在浏览器中打开此链接: ', color='cyan')
+                cprint('[-] 请在浏览器中打开此链接: ', 'cyan')
                 print(authorization_url)
 
-            start_token_server()
+            if self.cfg.auto_auth:
+                start_oauth_server(self.cfg.redirect_uri)
+            else:
+                CALLBACK_REQUEST = get_input(cstring('[-] 请手动粘贴跳转后的链接>', 'cyan'))
 
-            if hasattr(cfg, 'authorization_response'):
-                # redirect_resp = input(cstring('[-] 请将跳转后的网站粘贴到这里: ', color='cyan')).strip()
-                self.session.parse_authorization_response(cfg.authorization_response)
+            if CALLBACK_REQUEST:
+                self.session.parse_authorization_response(self.cfg.redirect_uri + CALLBACK_REQUEST)
                 # requests-oauthlib换取access token时verifier是必须的，而饭否再上一步是不返回verifier的，所以必须手动设置
-                access_token = self.session.fetch_access_token(access_token_url, verifier='123')
+                access_token = self.session.fetch_access_token(self.cfg.access_token_url, verifier='123')
                 cprint('[+] 授权完成，可以愉快地发饭啦！', color='green')
                 return access_token
             else:
@@ -121,6 +151,32 @@ class API:
         except TokenRequestDenied:
             cprint('[x] 授权失败，请检查本地时间与网络时间是否同步', color='red')
             sys.exit(1)
+
+    def xauth(self):
+        # 1. form base request args
+        # 2. generate signature, add to base args
+        # 3. generate Authorization header from base args
+
+        username = get_input(cstring('[-]请输入用户名或邮箱>', 'cyan'))
+        password = getpass.getpass(cstring('[-]请输入密码>', 'cyan'))
+        # 这些实际上并不是url params，但是他们与其他url params一样参与签名，最终成为Authorization header的值
+        args = [
+            ('x_auth_username', username),
+            ('x_auth_password', password),
+            ('x_auth_mode', 'client_auth')
+        ]
+
+        class OAuth1ClientPatch(OAuth1Client):
+            """Patch oauthlib.oauth1.Client for xauth"""
+
+            def get_oauth_params(self, request):
+                params = super().get_oauth_params(request)
+                params.extend(args)
+                return params
+
+        sess = OAuth1Session(self.cfg.consumer_key, self.cfg.consumer_secret, client_class=OAuth1ClientPatch)
+        access_token = sess.fetch_access_token(self.cfg.access_token_url, verifier='123')
+        return access_token
 
     @api('GET', 'account', 'verify_credentials')
     def verify_credentials(self, **params):
@@ -173,8 +229,9 @@ class API:
     def photo_upload(self, photo_data, **data):
         """发布带图片状态"""
         # {name : (filename, filedata, content_type, {headers})}
-        file = {'photo': ('photo', photo_data, 'application/octet-stream')}
-        return None, data, file
+        file = {'photo': ('photo', photo_data, 'application/octet-stream'),
+                'status': ('', data.get('status', ''), 'text/plain')}
+        return None, None, file
 
     @api('GET', 'users', 'show')
     def users_show(self, **params):
@@ -227,47 +284,30 @@ class API:
 
 # noinspection PyTupleAssignmentBalance
 class Fan:
-    def __init__(self, access_token=None):
-        self._cache = self.load_cache(cfg.CACHE_FILE) or {}
-
-        access_token = self._cache.get('access_token')
-        self.api = API(cfg.CONSUMER_KEY, cfg.CONSUMER_SECRET, access_token,
-                       request_token_url=cfg.REQUEST_TOKEN_URL,
-                       authorize_url=cfg.AUTHORIZE_URL,
-                       access_token_url=cfg.ACCESS_TOKEN_URL,
-                       callback_uri=cfg.REDIRECT_URI,
-                       api_url=cfg.API_URL)
-        self._cache['access_token'] = self.api.access_token
-        self.save_cache()
-
-    @staticmethod
-    def load_cache(cache_file):
-        if os.path.isfile(cache_file):
-            with open(cfg.CACHE_FILE, encoding='utf8') as f:
-                return json.load(f)
-
-    def save_cache(self):
-        with open(cfg.CACHE_FILE, 'w', encoding='utf8') as f:
-            json.dump(self._cache, f, ensure_ascii=False, indent=2, sort_keys=True)
+    def __init__(self, cfg):
+        """
+        :param .config.Config cfg: Config Object
+        """
+        self.cfg = cfg
+        self.api = API(cfg)
+        s, me = self.api.users_show()
+        if s:
+            self.cfg.user['user'] = me
 
     def me(self):
         s, me = self.api.users_show()
         if s:
-            self._cache['latest_status'] = me.pop('status')
-            self._cache['me'] = me
-            self.save_cache()
-
             self.display_user(me)
             return True
+            # todo
+            # 显示最近的几条消息
+            # 显示提到我的消息和私信的数量
         else:
             cprint('[x] ' + me, 'red')
 
     def update_status(self, status, **params):
         s, r = self.api.statuses_update(status=status, mode='lite', **params)
         if s:
-            self._cache['me'] = r.pop('user')
-            self._cache['my_latest_status'] = r
-            self.save_cache()
             print(cstring('[-] 发布成功:', color='green'), self.process_status_text(r['text']))
             return True
         else:
@@ -279,8 +319,6 @@ class Fan:
         if s:
             id = latest[0]['id']
             s, info = self.api.statuses_destroy(id=id)
-            self._cache['me'] = info['user']
-            self.save_cache()
             if s:
                 cprint('[-] 撤回成功: %s' % info['text'], color='green')
                 return True
@@ -339,29 +377,26 @@ class Fan:
         text = link_re.sub(cstring(r'\1', 'cyan'), text)
         return text
 
-    @classmethod
-    def display_statuses(cls, timeline):
-        statuses = []
-
+    def display_statuses(self, timeline):
         for i, status in enumerate(timeline):
 
             name = cstring(status['user']['name'], 'green')
-            id = ('@' + cstring(status['user']['id'], 'blue')) if cfg.SHOW_ID else ''
-            text = cls.process_status_text(status['text'])
+            id = ('@' + cstring(status['user']['id'], 'blue')) if self.cfg.show_id else ''
+            text = self.process_status_text(status['text'])
             created_at = arrow.get(status['created_at'], 'ddd MMM DD HH:mm:ss Z YYYY').humanize(locale='zh')
-            photo = cstring('[图]', 'green') if 'photo' in status else ''
+            photo = cstring('[图]', 'green') if ('photo' in status and not self.cfg.show_image) else ''
             truncated = cstring('$', 'magenta') if status['truncated'] else ''
-            time_tag = cstring('(' + created_at + ')', 'white') if cfg.SHOW_TIME_TAG else ''
-            statuses.append(
-                '[{seq}] [{name}{id}] {text} {photo} {truncated} {time_tag}'.format(
-                    seq=i,
-                    name=name,
-                    id=id,
-                    text=text,
-                    photo=photo,
-                    truncated=truncated,
-                    time_tag=time_tag))
-        print('\n'.join(statuses))
+            time_tag = cstring('(' + created_at + ')', 'white') if self.cfg.show_time_tag else ''
+            print('[{seq}] [{name}{id}] {text} {photo} {truncated} {time_tag}'.format(
+                seq=i,
+                name=name,
+                id=id,
+                text=text,
+                photo=photo,
+                truncated=truncated,
+                time_tag=time_tag))
+            if self.cfg.show_image and photo:
+                self.imgcat(requests.get(status['imageurl']).content)
 
     @classmethod
     def imgcat(cls, image_data, width='auto', height='auto', preserveAspectRatio=False, inline=True, filename=''):
@@ -413,7 +448,7 @@ class Fan:
             prompt = cstring('[-] 输入命令(h显示帮助)>', 'cyan')
             try:
                 key = input(prompt).strip()
-                if key in ('z', 'j', 'q', 'h', 'm', 'k'):
+                if key in ('z', 'j', 'q', 'h', 'm'):
                     return key, None, None
                 else:
                     keys = key.split(' ')
@@ -426,11 +461,10 @@ class Fan:
             except EOFError:
                 return 'q', None, None
             except ValueError:
-                # cprint('[x] 输入格式有误，退出中...', 'red')
                 return None, None, None
 
         def display_private_timeline(index):
-            s, timeline = self.api.home_timeline(count=10, max_id=index, format='html', mode='lite')
+            s, timeline = self.api.home_timeline(count=self.cfg.timeline_count, max_id=index, format='html', mode='lite')
             if not s:
                 cprint('[x] ' + timeline, 'red')
             self.display_statuses(timeline)
@@ -445,43 +479,31 @@ class Fan:
             return timeline
 
         max_id = None
-        min_id = None
         timeline = display_private_timeline(max_id)
         while True:
             command, number, content = get_input()
             if command == 'j':
-                if cfg.AUTO_CLEAR:
+                if self.cfg.auto_clear:
                     clear_screen()
                 timeline = display_private_timeline(max_id)
                 max_id = timeline[-1]['id']
-                min_id = timeline[0]['id']
-            elif command == 'k':
-                    if cfg.AUTO_CLEAR:
-                    clear_screen()
-                timeline = display_private_timeline(min_id)
-                max_id = timeline[-1]['id']
-                min_id = timeline[0]['id']
             elif command == 'z':
                 max_id = None
-                if cfg.AUTO_CLEAR:
+                if self.cfg.auto_clear:
                     clear_screen()
                 timeline = display_private_timeline(max_id)
                 max_id = timeline[-1]['id']
-                min_id = timeline[0]['id']
             elif command == 'm':
-                if cfg.AUTO_CLEAR:
+                if self.cfg.auto_clear:
                     clear_screen()
                 timeline = display_public_timeline()
             elif command == 'h':
                 print(cstring('<m>', 'cyan') + '随便看看 \n' +
                       cstring('<z>', 'cyan') + '刷新 \n' +
                       cstring('<j>', 'cyan') + ' 翻页 \n' +
-                      cstring('<k>', 'cyan') + ' 前一页 \n' +
                       cstring('<p 序号>', 'cyan') + ' 图片 \n' +
                       cstring('<l 序号>', 'cyan') + '浏览用户 \n' +
                       cstring('<lo 序号>', 'cyan') + '浏览原PO \n' +
-                    #   cstring('<ltl 序号>', 'cyan') + '浏览用户TL \n' +
-                    #   cstring('<lotl 序号>', 'cyan') + '浏览原PO\'s TL \n' +
                       cstring('<c 序号 xxx>', 'cyan') + ' 评论\n' +
                       cstring('<r 序号 xxx>', 'cyan') + ' 转发\n' +
                       cstring('<f 序号>', 'cyan') + ' 关注原PO\n' +
@@ -494,6 +516,7 @@ class Fan:
                 # TODO:优化图片显示及gif显示
                 # simshow(image_url)
                 if bool(image_url):
+                    logging.debug('image_url is %s', image_url)
                     self.imgcat(requests.get(image_url).content)
                 else:
                     cprint('[x] 没有图片', 'red')
@@ -501,8 +524,6 @@ class Fan:
                 self.display_user(timeline[number]['user'])
             elif command == 'lo':
                 self.display_user(timeline[number]['repost_status']['user'])
-            # elif command == 'ltl':
-            # elif commnad == 'lotl':
             elif command == 'c':
                 status = timeline[number]
                 text = '@' + status['user']['screen_name'] + ' ' + content
@@ -547,7 +568,7 @@ class Fan:
                 cprint('[x] 输入有误，请重新输入', 'red')
 
     def random_view(self):
-        s, timeline = self.api.public_timeline(count=20)
+        s, timeline = self.api.public_timeline(count=self.cfg.timeline_count)
         if s:
             self.display_statuses(timeline)
         else:
@@ -644,7 +665,7 @@ class Fan:
             cprint('[x] 发布失败: %s' % r, 'red')
 
     def lock(self, lock):
-        cookie = self._cache.get('cookie')
+        cookie = self.cfg.user['cookie']
         while True:
             if cookie:
                 s = self.api.lock(lock, cookie)
@@ -658,10 +679,33 @@ class Fan:
                     break
 
             cprint('[x] Cookie不存在或已失效', 'red')
-            try:
-                cookie = input(cstring('[+] 请重新输入>', 'cyan')).strip().strip('"')
-            except EOFError:
-                cookie = None
-                break
-        self._cache['cookie'] = cookie
-        self.save_cache()
+            cookie = get_input(cstring('[+] 请重新输入>', 'cyan')).strip('"')
+            self.cfg.user['cookie'] = cookie
+
+    def switch_account(self):
+        text = []
+        for i, account in enumerate(self.cfg.accounts):
+            current = ''
+            if i == self.cfg.current_user:
+                current = cstring('(current)', 'yellow')
+            text.append('[{seq}] {name} @ {id} {current}'.format(
+                seq=i,
+                name=cstring(account['user']['screen_name'], 'green'),
+                id=cstring(account['user']['id'], 'cyan'),
+                current=current
+            ))
+        print('\n'.join(text))
+        num = get_input(cstring('[-] 请选择账号>', 'cyan'))
+        try:
+            num = int(num)
+            if 0 <= num < len(self.cfg.accounts):
+                selected = self.cfg.accounts[num]
+                self.cfg['current_user'] = selected
+            else:
+                raise ValueError
+        except ValueError:
+            cprint('[x] 切换失败', 'red')
+            sys.exit(1)
+
+    def login(self):
+        raise NotImplementedError

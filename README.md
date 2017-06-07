@@ -1,5 +1,9 @@
 ## 饭否命令行客户端
 
+[![PyPI version](https://badge.fury.io/py/fanfou-cli.svg)](https://badge.fury.io/py/fanfou-cli)
+[![Python version](https://img.shields.io/badge/python-3.5-blue.svg)](https://img.shields.io/badge/python-3.5-blue.svg)
+[![LICENSE](https://img.shields.io/badge/license-MIT-blue.svg)](https://img.shields.io/badge/license-MIT-blue.svg)
+
 ### 安装
 - 通过pip安装
 ```sh
@@ -13,7 +17,6 @@ pip3 install . --user
 ```
 
 ### 使用
-![](_images/4.png)
 
 **日常使用**：
 
@@ -21,51 +24,27 @@ pip3 install . --user
 fan 任意文字，不需要引号，可以包含空格，fan命令之后的任意内容均被当作新饭的内容
 ```
 
-**其他功能**:
-- 不加任何参数直接运行`fan`, 则在默认浏览器中打开饭否主页
-- `fan 任意文字 -i <image-filename>/<image-url>` 上传图片。
-    `-i`参数可以是图片的本地路径或者网络URL，网络URL请用引号引起来。文字可以为空。
-- `fan -`  `fan`命令后加短横线`-`，表示从标准输入(stdin)中读取内容。这样就可以输入多行的饭，输入完成后按`Ctrl+D`(Windows下`Ctrl+Z`)结束输入。
-    也可以与其他命令结合起来使用，如`echo 'hello' | fan -`
-- `fan -r` 撤回上一条饭
-- `fan -v` 在终端上刷饭
-    在此模式下，`j`键翻页，`c 序号 xxx` 评论一条饭，`r 序号 xxx` 转发一条饭，`f 序号`关注一条被转发的饭的原PO，`u 序号`取消关注
-- `fan -m` 查看自己的饭否资料
-- `fan -d` 随机查看一些公开的饭
-- `fan -u <user-id>` 查看他人的资料，`user-id`可从`fan -v`模式的`名字@id`中获得
-- `fan --lock 1` 上锁；`fan --lock 0` 解锁
-- `fan --dump <文件名>` 将所有饭否消息保存为JSON格式。文件名可选，默认为`timeline.json`
-- `fan -h` 查看帮助
-
+**其他功能**:  
+![](_images/5.png)
 
 初次使用时，此工具需要获取你的授权才能帮你发饭。
-1. 首先执行`fan`的任意命令，工具会指示你在浏览器中打开一个链接：
-```sh
-$ fan -h
-请在浏览器中打开此网址: http://fanfou.com/oauth/authorize?callback_uri=http%3A%2F%2Flocalhost/callback&oauth_t
-oken=20a6af62dc1913997c48b7d4f03177ef
-```
-**这个是饭否官方授权第三方应用的页面，请放心打开。**  
+此工具支持两种授权方式：
+- 一种是 OAuth，这种方式无需获取你的密码，是默认的授权方式。  
+- 另一种是 XAuth，这种方式需要你输入用户名和密码（输入密码时自动关闭回显），适合在没有浏览器的场景使用，在使用 `--xauth` 参数时会使用此种方式。
 
-2. 打开之后会出现如下授权页面：
-    ![](_images/1.png)
-    点击同意，即允许第三方应用操作你在饭否上的数据。
+**你的密码仅在初次授权时需要，此工具不会保存**
 
-3. 然后，浏览器会重定向到一个本地链接，访问在本地监听的HTTP服务器，如果看到页面提示 ‘授权成功’，则表示授权已经完成，现在可以愉快地刷饭了！
-
-**整个授权过程都是使用饭否官方地OAuth API，此工具无法获取到你的密码。如果你想取消对此工具的授权，
-可以随时访问 `http://fanfou.com/settings/apps`, 找到`爱米饭`， 然后`取消认证`就可以了啦~。如下图所示：**
+如果你想取消对此工具的授权，可以随时访问 `http://fanfou.com/settings/apps`, 找到`爱米饭`， 然后`取消认证`就可以了啦~。如下图所示：  
 ![](_images/2.png)
 
 
 ### 说明
 - 此工具会在`~/.fancache`(*unix系统)或 `%USERPROFILE%/.fancache`中保存认证凭据(`access_token`)，用户的饭否资料，和你的最新的一条饭否消息。你可以随时删除这个文件，不过删除之后需要重新授权。
-- 此工具会在本地开启一个HTTP服务器，监听`8000`端口。Windows下会弹出权限提示，为了能够正常授权，请选择允许。
-- 上锁/解锁功能需要你在浏览器中打开饭否页面，然后按`F12`打开控制台，执行以下`Javascript`代码，将代码的输出结果粘贴到脚本中。
+- OAuth认证时，此工具会启动一个HTTP服务器，并监听本地的`8000`端口。Windows下会弹出权限提示，为了能够正常授权，请选择允许。
+- 上锁/解锁功能需要你在浏览器中的 cookie。在浏览器中打开饭否页面，然后按`F12`打开控制台，执行以下`Javascript`代码，将代码的输出结果粘贴到脚本中。
     ```javascript
     (/al=(.*?);/i).exec(document.cookie)[1]
     ```
-    **[!!!]获取你的登陆Cookie是非常危险的行为，此工具保证不会上传保存任何你的个人资料和Cookie，但 Use at your own risk!**
 
 ### 依赖
 - Python3
@@ -79,6 +58,10 @@ oken=20a6af62dc1913997c48b7d4f03177ef
 - [x] 转发/评论消息
 - [x] 上锁/解锁功能
 - [x] 简化授权流程
+- [x] 查看图片
+- [x] xauth支持
+- [ ] 修改配置功能
+- [ ] 多账号切换
 - [ ] 备份进度条
 - [ ] 查看提到我的消息
 - [ ] 查看私信
