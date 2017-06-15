@@ -5,6 +5,7 @@
 import json
 import os
 import atexit
+from .util import cprint, cstring, get_input
 
 DEFAULT_CONFIG = {
     'config_file': os.path.join(os.path.expanduser('~'), '.fancache'),
@@ -19,15 +20,35 @@ DEFAULT_CONFIG = {
     'access_token_url': 'http://fanfou.com/oauth/access_token',
     'api_url': 'http://api.fanfou.com/{}/{}.json',
     # Preferences
-    'show_id': False,
-    'show_time_tag': False,
-    'auto_clear': False,
-    'auto_auth': True,
-    'timeline_count': 10,
-    'show_image': False,
-    'image_width': '15%',
-    'xauth': False
+    'preferences': {'show_id': False,
+                    'show_time_tag': False,
+                    'auto_clear': False,
+                    'auto_auth': True,
+                    'timeline_count': 10,
+                    'show_image': False,
+                    'image_width': '15%',
+                    'xauth': False,
+                    'repost_style_left': '「',
+                    'repost_style_right': '」'
+                    }
 }
+
+
+def merge(a, b):
+    "merges b into a"
+    for key in b:
+        if key in a:
+            if isinstance(a[key], dict) and isinstance(b[key], dict):
+                merge(a[key], b[key])
+            elif a[key] == b[key]:
+                pass  # same leaf value
+            else:
+                a[key] = b[key]
+                # else:
+                # a[key] = b[key]
+                # 不向a中添加key
+                # pass
+    return a
 
 
 class Config:
@@ -36,14 +57,19 @@ class Config:
     def __init__(self):
         self.args = None  # command line arguments
         self.config = DEFAULT_CONFIG
-        self.config.update(self.load())
+        cache = self.load()
+        # update only configs defined in default configs
+        self.config = merge(DEFAULT_CONFIG, cache)
+
         atexit.register(self.dump)
 
     def __getattr__(self, item):
         # command line arguments take precedence
         if getattr(self.args, item, None) is not None:
             return getattr(self.args, item)
-        return self.config.get(item)
+        if self.config.get(item) is not None:
+            return self.config.get(item)
+        return self.config['preferences'].get(item)
 
     @property
     def user(self):
@@ -51,7 +77,7 @@ class Config:
         if self.config['current_user'] is None:
             self.config['accounts'].append({})
             self.config['current_user'] = 0
-        return self.config['accounts'][self.current_user]
+        return self.config['accounts'][self.config['current_user']]
 
     def load(self):
         if os.path.isfile(self.config_file):
@@ -63,6 +89,18 @@ class Config:
     def dump(self):
         with open(self.config_file, 'w', encoding='utf8') as f:
             json.dump(self.config, f, ensure_ascii=False, indent=2, sort_keys=True)
+
+    def configure(self):
+        config = {}
+        for option, value in self.config['preferences'].items():
+            text = get_input('[-] {} ({})>'.format(cstring(option, 'cyan'), cstring(value, 'white')))
+            if text == '':
+                continue
+            if isinstance(value, bool):
+                config[option] = True if text.lower() == 'true' else False
+            else:
+                config[option] = type(value)(text)
+        self.config.update(config)
 
 
 cfg = Config()

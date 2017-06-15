@@ -20,17 +20,29 @@ from base64 import b64encode
 import arrow
 import requests
 
-# patch utils.filter_params
+from requests_oauthlib.oauth1_session import TokenRequestDenied, OAuth1Session
+from oauthlib.oauth1 import Client as OAuth1Client
 from oauthlib.oauth1.rfc5849 import utils
+
+# patch utils.filter_params
 utils.filter_oauth_params = lambda t: t
 
-from . import clear_screen
-from requests_oauthlib.oauth1_session import TokenRequestDenied, OAuth1Session
-from . import cprint, cstring, get_input, open_in_browser
-from oauthlib.oauth1 import Client as OAuth1Client
+from .util import *
 
 # Flag set when callback was called
 CALLBACK_REQUEST = None
+
+
+class CookieExpired(Exception):
+    pass
+
+
+class UnknownException(Exception):
+    pass
+
+
+class AuthFailed(Exception):
+    pass
 
 
 class OAuthTokenHandler(BaseHTTPRequestHandler):
@@ -47,6 +59,7 @@ class OAuthTokenHandler(BaseHTTPRequestHandler):
             self.send_response(403)
             self.send_header('Content-type', 'text/html; charset=utf-8')
             self.wfile.write('<h1>参数错误！</h1>'.encode('utf8'))
+            raise AuthFailed
 
 
 def start_oauth_server(redirect_uri):
@@ -68,6 +81,7 @@ def start_oauth_server(redirect_uri):
         httpd.handle_request()
     except KeyboardInterrupt:
         cprint("[-] 服务器退出中...", 'cyan')
+        raise AuthFailed
     httpd.server_close()
 
     if not CALLBACK_REQUEST:
@@ -81,21 +95,20 @@ def api(method, category, action):
         def wrapper(self, *args, **kwargs):
             url = self.api_url.format(category, action)
             params, data, files = f(self, *args, **kwargs)
-            failure = 0
-            while True:
+            for failure in range(3):
                 try:
                     result = self.session.request(method, url, params=params, data=data, files=files, timeout=5)
                 except ValueError as e:
                     cprint(e, 'red')
                     sys.exit(1)
                 except requests.RequestException:
-                    failure += 1
+                    pass
                 else:
                     break
-                if failure >= 3:
-                    cprint('[x] 网络请求失败', color='red')
-                    sys.exit(1)
                 time.sleep(1)
+            else:
+                cprint('[x] 网络请求失败', color='red')
+                sys.exit(1)
             j = result.json()
             if result.status_code == 200:
                 return True, j
@@ -140,17 +153,20 @@ class API:
                 CALLBACK_REQUEST = get_input(cstring('[-] 请手动粘贴跳转后的链接>', 'cyan'))
 
             if CALLBACK_REQUEST:
-                self.session.parse_authorization_response(self.cfg.redirect_uri + CALLBACK_REQUEST)
-                # requests-oauthlib换取access token时verifier是必须的，而饭否再上一步是不返回verifier的，所以必须手动设置
-                access_token = self.session.fetch_access_token(self.cfg.access_token_url, verifier='123')
-                cprint('[+] 授权完成，可以愉快地发饭啦！', color='green')
+                try:
+                    self.session.parse_authorization_response(self.cfg.redirect_uri + CALLBACK_REQUEST)
+                    # requests-oauthlib换取access token时verifier是必须的，而饭否在上一步是不返回verifier的，所以必须手动设置
+                    access_token = self.session.fetch_access_token(self.cfg.access_token_url, verifier='123')
+                    cprint('[+] 授权完成，可以愉快地发饭啦！', color='green')
+                except ValueError:
+                    raise AuthFailed
                 return access_token
             else:
                 cprint('[x] 授权失败!', 'red')
-                sys.exit(1)
+                raise AuthFailed
         except TokenRequestDenied:
             cprint('[x] 授权失败，请检查本地时间与网络时间是否同步', color='red')
-            sys.exit(1)
+            raise AuthFailed
 
     def xauth(self):
         # 1. form base request args
@@ -184,11 +200,11 @@ class API:
         return params, None, None
 
     @api('GET', 'account', 'rate_limit_status')
-    def rate_limit_stats(self, **params):
+    def rate_limit_status(self, **params):
         return params, None, None
 
     @api('GET', 'account', 'notification')
-    def account_notification(self, **params):
+    def notifications(self, **params):
         """返回未读的mentions, direct message 以及关注请求数量"""
         return params, None, None
 
@@ -209,6 +225,10 @@ class API:
     def statuses_destroy(self, **data):
         """删除一条状态"""
         return None, data, None
+
+    @api('GET', 'statuses', 'mentions')
+    def mentions(self, **params):
+        return params, None, None
 
     @api('GET', 'statuses', 'home_timeline')
     def home_timeline(self, **params):
@@ -254,7 +274,6 @@ class API:
             return None, data, None
 
     def lock(self, lock, cookie):
-
         """设置：需要我批准才能查看我的消息"""
         url = 'http://fanfou.com/settings/privacy'
         sess = requests.session()
@@ -289,7 +308,11 @@ class Fan:
         :param .config.Config cfg: Config Object
         """
         self.cfg = cfg
-        self.api = API(cfg)
+        try:
+            self.api = API(cfg)
+        except AuthFailed:
+            cprint('[x] 授权失败！', 'red')
+            sys.exit(1)
         s, me = self.api.users_show()
         if s:
             self.cfg.user['user'] = me
@@ -298,10 +321,20 @@ class Fan:
         s, me = self.api.users_show()
         if s:
             self.display_user(me)
+
+            s, notifications = self.api.notifications()
+            notif_trans = {
+                'direct_message': '私信',
+                'friend_requests': '好友请求',
+                'mentions': '@提到你的'
+            }
+            if s:
+                for name, count in notifications.items():
+                    if count > 0:
+                        print(cstring(notif_trans[name], 'cyan'), str(count), end='   ')
             return True
             # todo
             # 显示最近的几条消息
-            # 显示提到我的消息和私信的数量
         else:
             cprint('[x] ' + me, 'red')
 
@@ -608,7 +641,7 @@ class Fan:
             fp.write(text[start:end])
 
         max_id = None
-        fp = open(filename, 'a+', encoding='utf8')
+        fp = open(filename, 'w', encoding='utf8')
         fp.write('[')
 
         first = True
@@ -668,19 +701,20 @@ class Fan:
         cookie = self.cfg.user['cookie']
         while True:
             if cookie:
-                s = self.api.lock(lock, cookie)
-                if s == 'success':
-                    cprint('[-] {}成功'.format('上锁' if lock else '解锁'), 'green')
-                    return True
-                elif s == 'cookie_expired':
+                try:
+                    self.api.lock(lock, cookie)
+                except CookieExpired:
                     pass
-                else:
+                except UnknownException:
                     cprint('[x] 失败'.format('上锁' if lock else  '解锁'), 'red')
                     break
+                else:
+                    self.cfg.user['cookie'] = cookie
+                    cprint('[-] {}成功'.format('上锁' if lock else '解锁'), 'green')
+                    return True
 
             cprint('[x] Cookie不存在或已失效', 'red')
             cookie = get_input(cstring('[+] 请重新输入>', 'cyan')).strip('"')
-            self.cfg.user['cookie'] = cookie
 
     def switch_account(self):
         text = []
@@ -699,13 +733,30 @@ class Fan:
         try:
             num = int(num)
             if 0 <= num < len(self.cfg.accounts):
-                selected = self.cfg.accounts[num]
-                self.cfg['current_user'] = selected
+                self.cfg.config['current_user'] = num
             else:
                 raise ValueError
         except ValueError:
             cprint('[x] 切换失败', 'red')
-            sys.exit(1)
 
     def login(self):
-        raise NotImplementedError
+        if not self.cfg.xauth:
+            cprint('[-] 即将使用OAuth验证方式，请首先在浏览器中切换到将要授权的账号', 'cyan')
+            get_input(cstring('[-] 任意键继续>', 'cyan'))
+        new_user_index = len(self.cfg.accounts)
+        origin_user = self.cfg.current_user
+        used_tokens = (a['access_token'] for a in self.cfg.accounts)
+
+        self.cfg.config['current_user'] = new_user_index
+        self.cfg.accounts.append({})
+        try:
+            api = API(self.cfg)
+            s, me = api.users_show()
+            if s:
+                self.cfg.user['user'] = me
+        except AuthFailed:
+            cprint('[x] 授权失败！', 'red')
+            return
+        if api.access_token in used_tokens:
+            self.cfg.accounts.pop()
+            self.cfg.config['current_user'] = origin_user
